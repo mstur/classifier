@@ -70,14 +70,14 @@ def main(_):
     # ________________________________________EXECUTION PHASE_______________________________________
     sess = tf.InteractiveSession()
     tf.global_variables_initializer().run()
-    saver.restore(sess, "/tmp/easy_final.ckpt")
+    saver.restore(sess, "tmp/easy_final.ckpt")
     summary_writer = tf.summary.FileWriter(logdir, graph=tf.get_default_graph())
     # Train
     avg_cost = 0
     for epoch in range(TRAINING_EPOCHS):
         total_batch = int(data.train.num_examples / BATCH_SIZE)
         if epoch % 5 == 0:
-            save_path = saver.save(sess, "/tmp/easy.ckpt")
+            save_path = saver.save(sess, "tmp/easy.ckpt")
             print("Progress Saved!")
         for batchn in range(total_batch):
             batch = data.train.next_batch(BATCH_SIZE)
@@ -92,7 +92,7 @@ def main(_):
     print("Optimization Finished!")
     print("Accuracy: ", sess.run(accuracy, feed_dict={x: data.test.images, y: data.test.labels}))
 
-    saver.save(sess, "/tmp/easy_final.ckpt")
+    saver.save(sess, "tmp/easy_final.ckpt")
     sess.close()
 
 
