@@ -32,7 +32,6 @@ def main(_):
     logdir = "{}/run-{}/".format(root_logdir, now)
 
     data = get_data.read_data_sets(FLAGS.data_dir, PIXELS, NUM_CLASSES, validation_size=VALIDATION_SIZE)
-    # saver = tf.train.Saver()
 
     # ______________________________________CONSTRUCTION PHASE______________________________________
     # graph input
@@ -43,6 +42,7 @@ def main(_):
     W = tf.Variable(tf.zeros([PIXELS, NUM_CLASSES]))     # weights
     b = tf.Variable(tf.zeros([NUM_CLASSES]))    # bias
 
+    # example of name scopes (can group related nodes)
     with tf.name_scope('Model'):
         predicted = tf.nn.softmax(tf.matmul(x, W)+b)
     with tf.name_scope('Loss'):
@@ -56,7 +56,6 @@ def main(_):
     tf.summary.scalar("accuracy", accuracy)
     merged_summary_op = tf.summary.merge_all()
 
-
     '''
     # Define loss and optimizer
     y_ = tf.placeholder(tf.float32, [None, NUM_CLASSES])
@@ -67,17 +66,19 @@ def main(_):
     ce_summary = tf.summary.scalar('CE', cross_entropy)
     file_writer = tf.summary.FileWriter(logdir, tf.get_default_graph())
     '''
+    saver = tf.train.Saver()
     # ________________________________________EXECUTION PHASE_______________________________________
     sess = tf.InteractiveSession()
-    # saver.restore(sess, "/tmp/easy_final.ckpt")
     tf.global_variables_initializer().run()
+    saver.restore(sess, "/tmp/easy_final.ckpt")
     summary_writer = tf.summary.FileWriter(logdir, graph=tf.get_default_graph())
     # Train
     avg_cost = 0
     for epoch in range(TRAINING_EPOCHS):
         total_batch = int(data.train.num_examples / BATCH_SIZE)
-        # if epoch % 100 == 0:
-            # save_path = saver.save(sess, "/tmp/easy.ckpt")
+        if epoch % 5 == 0:
+            save_path = saver.save(sess, "/tmp/easy.ckpt")
+            print("Progress Saved!")
         for batchn in range(total_batch):
             batch = data.train.next_batch(BATCH_SIZE)
             _ = sess.run(optimizer, feed_dict={x: batch[0], y: batch[1]})
@@ -88,12 +89,10 @@ def main(_):
         print("Epoch:", '%04d' % (epoch+1), "cost =", "{:.9f}".format(avg_cost))
 
     # Test trained model
-    # correct_prediction = tf.equal(tf.argmax(y, 1), tf.argmax(y, 1))
     print("Optimization Finished!")
-    # accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
     print("Accuracy: ", sess.run(accuracy, feed_dict={x: data.test.images, y: data.test.labels}))
 
-    # saver.save(sess, "/tmp/easy_final.ckpt")
+    saver.save(sess, "/tmp/easy_final.ckpt")
     sess.close()
 
 
