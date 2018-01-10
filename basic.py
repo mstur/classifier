@@ -14,21 +14,10 @@ LEARNING_RATE = 0.01
 TRAINING_EPOCHS = 25
 
 
-# creates bias, initializes with small positive value to avoid "dead neurons"
-def weight_variable(shape):
-    initial = tf.truncated_normal(shape, stddev=0.1)
-    return tf.Variable(initial)
-
-
-def bias_variable(shape):
-    initial = tf.constant(0.1, shape=shape)
-    return tf.Variable(initial)
-
-
 def main(_):
     # sets up tensorboard logging
-    now=datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    root_logdir = "logs"
+    now = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    root_logdir = "logs/basic"
     logdir = "{}/run-{}/".format(root_logdir, now)
 
     data = get_data.read_data_sets(FLAGS.data_dir, PIXELS, NUM_CLASSES, validation_size=VALIDATION_SIZE)
@@ -70,14 +59,15 @@ def main(_):
     # ________________________________________EXECUTION PHASE_______________________________________
     sess = tf.InteractiveSession()
     tf.global_variables_initializer().run()
-    saver.restore(sess, "tmp/easy_final.ckpt")
+    # restores model from disk
+    saver.restore(sess, "/tmp/basic_final.ckpt")
     summary_writer = tf.summary.FileWriter(logdir, graph=tf.get_default_graph())
     # Train
     avg_cost = 0
     for epoch in range(TRAINING_EPOCHS):
         total_batch = int(data.train.num_examples / BATCH_SIZE)
         if epoch % 5 == 0:
-            save_path = saver.save(sess, "tmp/easy.ckpt")
+            save_path = saver.save(sess, "/tmp/basic.ckpt")
             print("Progress Saved!")
         for batchn in range(total_batch):
             batch = data.train.next_batch(BATCH_SIZE)
@@ -89,10 +79,10 @@ def main(_):
         print("Epoch:", '%04d' % (epoch+1), "cost =", "{:.9f}".format(avg_cost))
 
     # Test trained model
-    print("Optimization Finished!")
+    print("Training Finished!")
     print("Accuracy: ", sess.run(accuracy, feed_dict={x: data.test.images, y: data.test.labels}))
 
-    saver.save(sess, "tmp/easy_final.ckpt")
+    saver.save(sess, "/tmp/basic_final.ckpt")
     sess.close()
 
 

@@ -13,6 +13,7 @@ from tensorflow.python.platform import gfile
 DEFAULT_SOURCE_URL = '/datasets/'  # possibly change to internet-hosted source
 NUM_CLASSES = 12
 PIXELS = 784
+ONEHOT = True
 
 TRAIN_IMAGES = 'train-images.gz'
 TRAIN_LABELS = 'train-labels.gz'
@@ -74,7 +75,10 @@ def extract_labels(f):
         num_items = _read32(bytestream)
         buf = bytestream.read(num_items)
         labels = numpy.frombuffer(buf, dtype=numpy.uint8)
-        return dense_to_one_hot(labels)
+
+        if ONEHOT:
+            return dense_to_one_hot(labels)
+        return labels
 
 
 class DataSet(object):
@@ -159,7 +163,7 @@ class DataSet(object):
             end = self._index_in_epoch
             images_new_part = self._images[start:end]
             labels_new_part = self._labels[start:end]
-            return numpy.concatenate((images_rest_part, images_new_part), axis=0) , numpy.concatenate((labels_rest_part, labels_new_part), axis=0)
+            return numpy.concatenate((images_rest_part, images_new_part), axis=0), numpy.concatenate((labels_rest_part, labels_new_part), axis=0)
         else:
             self._index_in_epoch += batch_size
             end = self._index_in_epoch
@@ -173,11 +177,14 @@ def read_data_sets(train_dir,
                    reshape=True,
                    validation_size=50,
                    seed=None,
-                   source_url=DEFAULT_SOURCE_URL,):
+                   source_url=DEFAULT_SOURCE_URL,
+                   onehot=True):
     global PIXELS
-    PIXELS= pixels
+    PIXELS = pixels
     global NUM_CLASSES
-    NUM_CLASSES= classes
+    NUM_CLASSES = classes
+    global ONEHOT
+    ONEHOT = onehot
 
     if not source_url:  # empty string check
         source_url = DEFAULT_SOURCE_URL
