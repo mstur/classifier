@@ -20,6 +20,9 @@ TRAINING_EPOCHS = 40
 N_LAY1 = 300
 N_LAY2 = 300
 N_LAY3 = 300
+N_LAY4 = 300
+N_LAY5 = 300
+N_LAY6 = 300
 
 # Distributing Parameters
 SPLITNUM = PIXELS/2
@@ -44,11 +47,26 @@ def main(_):
     y = tf.placeholder(tf.int64, shape=None, name="y")
 
     # creates dnn layers
-    with tf.name_scope("dnn"):
+    ''' with tf.name_scope("dnn"):
         hidlay1 = tf.layers.dense(x, N_LAY1, name="hidlay1", activation=tf.nn.relu)
         hidlay2 = tf.layers.dense(hidlay1, N_LAY2, name="hidlay2", activation=tf.nn.relu)
         hidlay3 = tf.layers.dense(hidlay2, N_LAY3, name="hidlay3", activation=tf.nn.relu)
-        outputs = tf.layers.dense(hidlay3, NUM_CLASSES, name="outputs")
+        outputs = tf.layers.dense(hidlay3, NUM_CLASSES, name="outputs") '''
+    with tf.name_scope("dnn1"):
+        with tf.device("/job:local/task:0"):
+            first_batch = tf.slice(x, [0,0], [SPLITNUM, 0])
+            hidlay1 = tf.layers.dense(x, N_LAY1, name="hidlay1", activation=tf.nn.relu)
+            hidlay2 = tf.layers.dense(hidlay1, N_LAY2, name="hidlay2", activation=tf.nn.relu)
+            hidlay3 = tf.layers.dense(hidlay2, N_LAY3, name="hidlay3", activation=tf.nn.relu)
+            outputs1 = tf.layers.dense(hidlay3, NUM_CLASSES, name="outputs1")
+    with tf.name_scope("dnn2"):
+        with tf.device("/job:local/task:1"):
+            second_batch = tf.slice(x, [SPLITNUM, 0], [-1,-1])
+            hidlay4 = tf.layers.dense(x, N_LAY4, name="hidlay4", activation=tf.nn.relu)
+            hidlay5 = tf.layers.dense(hidlay4, N_LAY5, name="hidlay5", activation=tf.nn.relu)
+            hidlay6 = tf.layers.dense(hidlay5, N_LAY6, name="hidlay6", activation=tf.nn.relu)
+            outputs2 = tf.layers.dense(hidlay6, NUM_CLASSES, name="outputs2")
+            outputs=(outputs1+outputs2)/2
 
     # name scopes group related nodes
     with tf.name_scope('Loss'):
@@ -67,34 +85,34 @@ def main(_):
     saver = tf.train.Saver()
 
     # ________________________________________EXECUTION PHASE_______________________________________
-    sess = tf.InteractiveSession()
-    tf.global_variables_initializer().run()
-
-    # restores model from disk
-    # saver.restore(sess, "/tmp/deep_final.ckpt")
-    summary_writer = tf.summary.FileWriter(logdir, graph=tf.get_default_graph())
-
-    # Train
-    for epoch in range(TRAINING_EPOCHS):
-        total_batch = int(data.train.num_examples / BATCH_SIZE)
-        for batchn in range(total_batch):
-            batch = data.train.next_batch(BATCH_SIZE)
-            _ = sess.run(training_op, feed_dict={x: batch[0], y: batch[1]})
-            summary = sess.run(merged_summary_op, feed_dict={x: batch[0], y: batch[1]})
-            summary_writer.add_summary(summary, epoch * total_batch + batchn)
-        acc_train = accuracy.eval(feed_dict={x: batch[0], y: batch[1]})
-        acc_val = accuracy.eval(feed_dict={x: data.validation.images, y: data.validation.labels})
-        print((epoch + 1), "Training accuracy: ", acc_train, "Validation accuracy: ", acc_val)
-        if (epoch + 1) % 5 == 0:
-            save_path = saver.save(sess, "/tmp/deep.ckpt")
-            print("Progress Saved!")
-
-    # Test trained model
-    print("Training Finished!")
-    print("Accuracy: ", sess.run(accuracy, feed_dict={x: data.test.images, y: data.test.labels}))
-
-    saver.save(sess, "/tmp/deep_final.ckpt")
-    sess.close()
+    # sess = tf.InteractiveSession()
+    # tf.global_variables_initializer().run()
+    with tf.Session("grpc://172.21.109.1") as sess:
+        # restores model from disk
+        # saver.restore(sess, "/tmp/deep_final.ckpt")
+        summary_writer = tf.summary.FileWriter(logdir, graph=tf.get_default_graph())
+    
+        # Train
+        for epoch in range(TRAINING_EPOCHS):
+            total_batch = int(data.train.num_examples / BATCH_SIZE)
+            for batchn in range(total_batch):
+                batch = data.train.next_batch(BATCH_SIZE)
+                _ = sess.run(training_op, feed_dict={x: batch[0], y: batch[1]})
+                summary = sess.run(merged_summary_op, feed_dict={x: batch[0], y: batch[1]})
+                summary_writer.add_summary(summary, epoch * total_batch + batchn)
+            acc_train = accuracy.eval(feed_dict={x: batch[0], y: batch[1]})
+            acc_val = accuracy.eval(feed_dict={x: data.validation.images, y: data.validation.labels})
+            print((epoch + 1), "Training accuracy: ", acc_train, "Validation accuracy: ", acc_val)
+            if (epoch + 1) % 5 == 0:
+                save_path = saver.save(sess, "/tmp/deep.ckpt")
+                print("Progress Saved!")
+    
+        # Test trained model
+        print("Training Finished!")
+        print("Accuracy: ", sess.run(accuracy, feed_dict={x: data.test.images, y: data.test.labels}))
+    
+        saver.save(sess, "/tmp/deep_final.ckpt")
+        sess.close()
 
 
 if __name__ == '__main__':
