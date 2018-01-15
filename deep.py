@@ -18,8 +18,11 @@ TRAINING_EPOCHS = 40
 
 # DNN Parameters
 N_LAY1 = 300
-N_LAY2 = 100
+N_LAY2 = 300
+N_LAY3 = 300
 
+# Distributing Parameters
+SPLITNUM = PIXELS/2
 
 def main(_):
     # sets up tensorboard logging
@@ -28,6 +31,12 @@ def main(_):
     logdir = "{}/run-{}/".format(root_logdir, now)
 
     data = get_data.read_data_sets(FLAGS.data_dir, PIXELS, NUM_CLASSES, validation_size=VALIDATION_SIZE, onehot=False)
+
+    # sets up distributing
+    # task_number = int(sys.argv[1])
+    # create_worker(task_number)
+    cluster = tf.train.ClusterSpec({"local": ["172.21.109.1","172.21.109.2"]})
+
 
     # ______________________________________CONSTRUCTION PHASE______________________________________
     # graph input
@@ -38,9 +47,10 @@ def main(_):
     with tf.name_scope("dnn"):
         hidlay1 = tf.layers.dense(x, N_LAY1, name="hidlay1", activation=tf.nn.relu)
         hidlay2 = tf.layers.dense(hidlay1, N_LAY2, name="hidlay2", activation=tf.nn.relu)
-        outputs = tf.layers.dense(hidlay2, NUM_CLASSES, name="outputs")
+        hidlay3 = tf.layers.dense(hidlay2, N_LAY3, name="hidlay3", activation=tf.nn.relu)
+        outputs = tf.layers.dense(hidlay3, NUM_CLASSES, name="outputs")
 
-    # example of name scopes (can group related nodes)
+    # name scopes group related nodes
     with tf.name_scope('Loss'):
         xent = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y, logits=outputs)
         loss = tf.reduce_mean(xent, name="loss")
@@ -92,3 +102,20 @@ if __name__ == '__main__':
     parser.add_argument('--data_dir', type=str, default='datasets/', help='Directory for storing input data')
     FLAGS, unparsed = parser.parse_known_args()
     tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
+'''
+    with tf.name_scope("dnn1"):
+        with tf.device("/job:local/task:0"):
+            first_batch = tf.slice(x, [0,0], [SPLITNUM, 0])
+            hidlay1 = tf.layers.dense(x, N_LAY1, name="hidlay1", activation=tf.nn.relu)
+            hidlay2 = tf.layers.dense(hidlay1, N_LAY2, name="hidlay2", activation=tf.nn.relu)
+            hidlay3 = tf.layers.dense(hidlay2, N_LAY3, name="hidlay3", activation=tf.nn.relu)
+            outputs1 = tf.layers.dense(hidlay3, NUM_CLASSES, name="outputs1")
+    with tf.name_scope("dnn2"):
+        with tf.device("/job:local/task:1"):
+            second_batch = tf.slice(x, [SPLITNUM, 0], [-1,-1])
+            hidlay4 = tf.layers.dense(x, N_LAY4, name="hidlay4", activation=tf.nn.relu)
+            hidlay5 = tf.layers.dense(hidlay4, N_LAY5, name="hidlay5", activation=tf.nn.relu)
+            hidlay6 = tf.layers.dense(hidlay5, N_LAY6, name="hidlay6", activation=tf.nn.relu)
+            outputs2 = tf.layers.dense(hidlay6, NUM_CLASSES, name="outputs2")
+            outputs=(outputs1+outputs2)/2
+'''
