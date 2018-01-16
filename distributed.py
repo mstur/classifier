@@ -1,83 +1,136 @@
+from __future__ import print_function
+from datetime import datetime
+import get_data
 import argparse
 import sys
-
 import tensorflow as tf
 
+# Data Parameters
 FLAGS = None
+PIXELS = 784
+NUM_CLASSES = 10
+VALIDATION_SIZE = 5000
+
+# Training Parameters
+BATCH_SIZE = 50
+LEARNING_RATE = 0.01
+TRAINING_EPOCHS = 40
+
+# DNN Parameters
+N_LAY1 = 300
+N_LAY2 = 300
+N_LAY3 = 300
+N_LAY4 = 300
+N_LAY5 = 300
+N_LAY6 = 300
+
+# Distributing Parameters
+SPLITNUM = PIXELS/2
 
 def main(_):
-  ps_hosts = FLAGS.ps_hosts.split(",")
-  worker_hosts = FLAGS.worker_hosts.split(",")
+    # sets up tensorboard logging
+    now = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    root_logdir = "logs/deep"
+    logdir = "{}/run-{}/".format(root_logdir, now)
 
-  # Create a cluster from the parameter server and worker hosts.
-  cluster = tf.train.ClusterSpec({"ps": ps_hosts, "worker": worker_hosts})
+    data = get_data.read_data_sets(FLAGS.data_dir, PIXELS, NUM_CLASSES, validation_size=VALIDATION_SIZE, onehot=False)
 
-  # Create and start a server for the local task.
-  server = tf.train.Server(cluster,
-                           job_name=FLAGS.job_name,
-                           task_index=FLAGS.task_index)
+    # sets up distributing
+    # task_number = int(sys.argv[1])
+    # create_worker(task_number)
+    cluster = tf.train.ClusterSpec({
+        "ps": [
+            "172.21.109.1:2222",
+        ],
+        "worker":[
+            "172.21.109.2:2222",
+            "172.21.109.3:2222"
+        ]})
+    server = tf.train.Server(cluster, job_name=FLAGS.job_name, task_index=FLAGS.task_index)
 
-  if FLAGS.job_name == "ps":
-    server.join()
-  elif FLAGS.job_name == "worker":
+    if FLAGS.job_name == "ps":
+        server.join()
+    elif FLAGS.job_name == "worker":
+        with tf.device(tf.train.replica_device_setter(worker_device="/job:worker/task:%d" % FLAGS.task_index, cluster=cluster)):
+            # ______________________________________CONSTRUCTION PHASE______________________________________
+            # graph input
+            x = tf.placeholder(tf.float32, shape=(None, PIXELS), name="x")
+            y = tf.placeholder(tf.int64, shape=None, name="y")
+        
+            # creates dnn layers
+            with tf.name_scope("dnn"):
+                hidlay1 = tf.layers.dense(x, N_LAY1, name="hidlay1", activation=tf.nn.relu)
+                hidlay2 = tf.layers.dense(hidlay1, N_LAY2, name="hidlay2", activation=tf.nn.relu)
+                hidlay3 = tf.layers.dense(hidlay2, N_LAY3, name="hidlay3", activation=tf.nn.relu)
+                outputs = tf.layers.dense(hidlay3, NUM_CLASSES, name="outputs") 
+            '''
+            with tf.name_scope("dnn1"):
+                with tf.device("/job:ps/task:0"):
+                    first_batch = tf.slice(x, [0,0], [SPLITNUM, 0])
+                    hidlay1 = tf.layers.dense(x, N_LAY1, name="hidlay1", activation=tf.nn.relu)
+                    hidlay2 = tf.layers.dense(hidlay1, N_LAY2, name="hidlay2", activation=tf.nn.relu)
+                    hidlay3 = tf.layers.dense(hidlay2, N_LAY3, name="hidlay3", activation=tf.nn.relu)
+                    outputs1 = tf.layers.dense(hidlay3, NUM_CLASSES, name="outputs1")
+            with tf.name_scope("dnn2"):
+                with tf.device("/job:worker/task:0"):
+                    second_batch = tf.slice(x, [SPLITNUM, 0], [-1,-1])
+                    hidlay4 = tf.layers.dense(x, N_LAY4, name="hidlay4", activation=tf.nn.relu)
+                    hidlay5 = tf.layers.dense(hidlay4, N_LAY5, name="hidlay5", activation=tf.nn.relu)
+                    hidlay6 = tf.layers.dense(hidlay5, N_LAY6, name="hidlay6", activation=tf.nn.relu)
+                    outputs2 = tf.layers.dense(hidlay6, NUM_CLASSES, name="outputs2")
+                    outputs=(outputs1+outputs2)/2
+            '''
+            # name scopes group related nodes
+            with tf.name_scope('Loss'):
+                xent = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y, logits=outputs)
+                loss = tf.reduce_mean(xent, name="loss")
+            with tf.name_scope('SGD'):
+                optimizer = tf.train.GradientDescentOptimizer(LEARNING_RATE)
+                training_op = optimizer.minimize(loss)
+            with tf.name_scope('Accuracy'):
+                correct = tf.nn.in_top_k(outputs, y, 1)
+                accuracy = tf.reduce_mean(tf.cast(correct, tf.float32))
+        
+            tf.summary.scalar("loss", loss)
+            tf.summary.scalar("accuracy", accuracy)
+            merged_summary_op = tf.summary.merge_all()
+            saver = tf.train.Saver()
 
-    # Assigns ops to the local worker by default.
-    with tf.device(tf.train.replica_device_setter(
-        worker_device="/job:worker/task:%d" % FLAGS.task_index,
-        cluster=cluster)):
+    # ________________________________________EXECUTION PHASE_______________________________________
+    # sess = tf.InteractiveSession()
+    init_op = tf.global_variables_initializer()
+    with tf.Session("grpc://172.21.109.1:2222") as sess:
+        sess.run(init_op)
+        # restores model from disk
+        # saver.restore(sess, "/tmp/deep_final.ckpt")
+        summary_writer = tf.summary.FileWriter(logdir, graph=tf.get_default_graph())
+    
+        # Train
+        for epoch in range(TRAINING_EPOCHS):
+            total_batch = int(data.train.num_examples / BATCH_SIZE)
+            for batchn in range(total_batch):
+                batch = data.train.next_batch(BATCH_SIZE)
+                _ = sess.run(training_op, feed_dict={x: batch[0], y: batch[1]})
+                summary = sess.run(merged_summary_op, feed_dict={x: batch[0], y: batch[1]})
+                summary_writer.add_summary(summary, epoch * total_batch + batchn)
+            acc_train = accuracy.eval(feed_dict={x: batch[0], y: batch[1]})
+            acc_val = accuracy.eval(feed_dict={x: data.validation.images, y: data.validation.labels})
+            print((epoch + 1), "Training accuracy: ", acc_train, "Validation accuracy: ", acc_val)
+            if (epoch + 1) % 5 == 0:
+                save_path = saver.save(sess, "/tmp/deep.ckpt")
+                print("Progress Saved!")
+    
+        # Test trained model
+        print("Training Finished!")
+        print("Accuracy: ", sess.run(accuracy, feed_dict={x: data.test.images, y: data.test.labels}))
+    
+        saver.save(sess, "/tmp/deep_final.ckpt")
+        sess.close()
 
-      # Build model...
-      loss = ...
-      global_step = tf.contrib.framework.get_or_create_global_step()
 
-      train_op = tf.train.AdagradOptimizer(0.01).minimize(
-          loss, global_step=global_step)
-
-    # The StopAtStepHook handles stopping after running given steps.
-    hooks=[tf.train.StopAtStepHook(last_step=1000000)]
-
-    # The MonitoredTrainingSession takes care of session initialization,
-    # restoring from a checkpoint, saving to a checkpoint, and closing when done
-    # or an error occurs.
-    with tf.train.MonitoredTrainingSession(master=server.target,
-                                           is_chief=(FLAGS.task_index == 0),
-                                           checkpoint_dir="/tmp/train_logs",
-                                           hooks=hooks) as mon_sess:
-      while not mon_sess.should_stop():
-        # Run a training step asynchronously.
-        # See `tf.train.SyncReplicasOptimizer` for additional details on how to
-        # perform *synchronous* training.
-        # mon_sess.run handles AbortedError in case of preempted PS.
-        mon_sess.run(train_op)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
   parser = argparse.ArgumentParser()
-  parser.register("type", "bool", lambda v: v.lower() == "true")
-  # Flags for defining the tf.train.ClusterSpec
-  parser.add_argument(
-      "--ps_hosts",
-      type=str,
-      default="",
-      help="Comma-separated list of hostname:port pairs"
-  )
-  parser.add_argument(
-      "--worker_hosts",
-      type=str,
-      default="",
-      help="Comma-separated list of hostname:port pairs"
-  )
-  parser.add_argument(
-      "--job_name",
-      type=str,
-      default="",
-      help="One of 'ps', 'worker'"
-  )
-  # Flags for defining the tf.train.Server
-  parser.add_argument(
-      "--task_index",
-      type=int,
-      default=0,
-      help="Index of task within the job"
-  )
+  parser.add_argument('--data_dir', type=str, default='/tmp/tensorflow/mnist/input_data',
+                      help='Directory for storing input data')
   FLAGS, unparsed = parser.parse_known_args()
   tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
